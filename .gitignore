@@ -1,0 +1,9 @@
+models/
+.venv/
+.env
+.DS_Store
+scripts/
+cd/
+.cursor
+.ruff_cache/
+.mypy_cache/

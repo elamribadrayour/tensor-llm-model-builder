@@ -1,0 +1,13 @@
+services:
+  tensorrt-llm-model-builder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    platform: linux/amd64
+    volumes:
+      - ./src/job:/app/src/job
+    environment:
+      - MODEL_NAME=Llama-2-7b-hf
+      - HF_TOKEN=hf_...
+      - HUGGINGFACE_HUB_CACHE=/app/models/huggingface/hub
+    command: ["uv", "run", "main.py"]
