@@ -1,14 +1,13 @@
 import os
-import shutil
 import subprocess
+import asyncio
 from uuid import uuid4
 from pathlib import Path
-from typing import Optional
 
 from loguru import logger
 from google.cloud import storage
 from result import Err, Ok, Result
-from huggingface_hub import hf_hub_download, snapshot_download
+from huggingface_hub import hf_hub_download
 
 
 class ModelBuilder:
@@ -39,10 +38,37 @@ class ModelBuilder:
             self.base_path / "tensorrt" / "engines" / self.model_name_unique
         )
         self.backend_path = self.base_path / "tensorrtllm_backend"
-        if self.backend_path.exists():
-            shutil.rmtree(self.backend_path)
+        # if self.backend_path.exists():
+        #     shutil.rmtree(self.backend_path)
 
-    def setup_environment(self: "ModelBuilder") -> Result[None, str]:
+    @staticmethod
+    def run_command(command: str, cwd: str | None = None) -> Result[bool, str]:
+        """Execute a shell command and handle errors."""
+        try:
+            logger.info(f"Executing command: {command}")
+            result = subprocess.run(
+                command, shell=True, check=True, cwd=cwd, capture_output=True, text=True
+            )
+            logger.info(result.stdout)
+            return Ok(True)
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Command failed: {e.stderr}")
+            return Err(e.stderr)
+
+    @staticmethod
+    async def run_command_async(
+        command: str, cwd: str | None = None
+    ) -> Result[bool, str]:
+        """Execute a shell command asynchronously and handle errors."""
+        try:
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                None, lambda: ModelBuilder.run_command(command, cwd)
+            )
+        except Exception as e:
+            return Err(str(e))
+
+    def set_environment(self: "ModelBuilder") -> Result[None, str]:
         """Set up environment variables and create necessary directories."""
         try:
             os.environ["MODEL_NAME"] = self.model_name
@@ -60,32 +86,27 @@ class ModelBuilder:
             logger.error(f"Failed to setup environment: {str(e)}")
             return Err(str(e))
 
-    def run_command(
-        self: "ModelBuilder", command: str, cwd: Optional[str] = None
-    ) -> Result[bool, str]:
-        """Execute a shell command and handle errors."""
-        try:
-            logger.info(f"Executing command: {command}")
-            result = subprocess.run(
-                command, shell=True, check=True, cwd=cwd, capture_output=True, text=True
-            )
-            logger.info(result.stdout)
-            return Ok(True)
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Command failed: {e.stderr}")
-            return Err(e.stderr)
+    async def set_tensorrtllm_backend(self: "ModelBuilder") -> Result[None, str]:
+        """Set up TensorRT-LLM backend asynchronously."""
+        if self.backend_path.exists():
+            logger.info("TensorRT-LLM backend already exists, skipping setup")
+            return Ok(None)
 
-    def setup_tensorrtllm_backend(self: "ModelBuilder") -> Result[None, str]:
-        """Set up TensorRT-LLM backend."""
         try:
             os.chdir(self.base_path)
-            self.run_command(command="git lfs install").unwrap()
-            self.run_command(
+            result = await ModelBuilder.run_command_async(command="git lfs install")
+            result.unwrap()
+
+            result = await ModelBuilder.run_command_async(
                 command="git clone https://github.com/triton-inference-server/tensorrtllm_backend.git"
-            ).unwrap()
+            )
+            result.unwrap()
 
             os.chdir(self.backend_path)
-            self.run_command(command="git submodule update --init --recursive").unwrap()
+            result = await ModelBuilder.run_command_async(
+                command="git submodule update --init --recursive"
+            )
+            result.unwrap()
 
             logger.info("TensorRT-LLM backend setup completed")
             return Ok(None)
@@ -93,38 +114,39 @@ class ModelBuilder:
             logger.error(f"Failed to setup TensorRT-LLM backend: {str(e)}")
             return Err(str(e))
 
-    def download_model(self: "ModelBuilder") -> Result[None, str]:
-        """Download the model from Hugging Face."""
+    async def get_model_from_hf(self: "ModelBuilder") -> Result[None, str]:
+        """Download the model from Hugging Face asynchronously."""
         try:
-            logger.info(f"Downloading model {self.model_name}...")
-            snapshot_download(
-                repo_id=f"meta-llama/{self.model_name}",
-            )
-
+            logger.info(f"Starting model download for {self.model_name}...")
+            download_cmd = f"huggingface-cli download meta-llama/{self.model_name}"
+            result = await ModelBuilder.run_command_async(command=download_cmd)
+            result.unwrap()
             logger.info("Model download completed")
             return Ok(None)
         except Exception as e:
             logger.error(f"Failed to download model: {str(e)}")
             return Err(str(e))
 
-    def convert_checkpoint(self: "ModelBuilder") -> Result[None, str]:
+    def set_checkpoint(self: "ModelBuilder") -> Result[None, str]:
         """Convert the model checkpoint."""
+        os.chdir(self.backend_path)
         try:
             convert_cmd = (
-                f"python3 tensorrt_llm/examples/models/core/llama/convert_checkpoint.py "
+                f"/usr/bin/python3 tensorrt_llm/examples/models/core/llama/convert_checkpoint.py "
                 f"--model_dir {self.hf_model_path} "
                 f"--output_dir {self.ckpt_path} "
                 f"--dtype float16"
             )
-            self.run_command(command=convert_cmd).unwrap()
+            ModelBuilder.run_command(command=convert_cmd).unwrap()
             logger.info("Checkpoint conversion completed")
             return Ok(None)
         except Exception as e:
             logger.error(f"Failed to convert checkpoint: {str(e)}")
             return Err(str(e))
 
-    def build_tensorrtllm(self: "ModelBuilder") -> Result[None, str]:
+    def set_engine(self: "ModelBuilder") -> Result[None, str]:
         """Build TensorRT-LLM model."""
+        os.chdir(self.backend_path)
         try:
             build_cmd = (
                 f"trtllm-build "
@@ -137,32 +159,34 @@ class ModelBuilder:
                 f"--kv_cache_type paged "
                 f"--max_batch_size 64"
             )
-            self.run_command(command=build_cmd).unwrap()
+            ModelBuilder.run_command(command=build_cmd).unwrap()
             logger.info("TensorRT-LLM build completed")
             return Ok(None)
         except Exception as e:
             logger.error(f"Failed to build TensorRT-LLM: {str(e)}")
             return Err(str(e))
 
-    def prepare_configs(self: "ModelBuilder") -> Result[None, str]:
+    def set_configs(self: "ModelBuilder") -> Result[None, str]:
         """Prepare model configurations."""
+        os.chdir(self.backend_path)
         try:
-            os.chdir(self.backend_path)
-
             # Copy config template
-            self.run_command(command="cp all_models/inflight_batcher_llm/ llama_ifb -r")
+            ModelBuilder.run_command(
+                command="cp all_models/inflight_batcher_llm/ llama_ifb -r"
+            ).unwrap()
 
             # Fill templates
+            prefix_cmd = "/usr/bin/python3 tools/fill_template.py"
             templates = [
-                f"python3 tools/fill_template.py -i llama_ifb/preprocessing/config.pbtxt tokenizer_dir:{self.hf_model_path},triton_max_batch_size:64,preprocessing_instance_count:1",
-                f"python3 tools/fill_template.py -i llama_ifb/postprocessing/config.pbtxt tokenizer_dir:{self.hf_model_path},triton_max_batch_size:64,postprocessing_instance_count:1",
-                "python3 tools/fill_template.py -i llama_ifb/tensorrt_llm_bls/config.pbtxt triton_max_batch_size:64,decoupled_mode:False,bls_instance_count:1,accumulate_tokens:False,logits_datatype:TYPE_FP32",
-                "python3 tools/fill_template.py -i llama_ifb/ensemble/config.pbtxt triton_max_batch_size:64,logits_datatype:TYPE_FP32",
-                f"python3 tools/fill_template.py -i llama_ifb/tensorrt_llm/config.pbtxt triton_backend:tensorrtllm,triton_max_batch_size:64,decoupled_mode:False,max_beam_width:1,engine_dir:{self.engine_path},max_tokens_in_paged_kv_cache:2560,max_attention_window_size:2560,kv_cache_free_gpu_mem_fraction:0.5,exclude_input_in_output:True,enable_kv_cache_reuse:False,batching_strategy:inflight_fused_batching,max_queue_delay_microseconds:0,encoder_input_features_data_type:TYPE_FP16,logits_datatype:TYPE_FP32",
+                f"{prefix_cmd} -i llama_ifb/preprocessing/config.pbtxt tokenizer_dir:{self.hf_model_path},triton_max_batch_size:64,preprocessing_instance_count:1",
+                f"{prefix_cmd} -i llama_ifb/postprocessing/config.pbtxt tokenizer_dir:{self.hf_model_path},triton_max_batch_size:64,postprocessing_instance_count:1",
+                f"{prefix_cmd} -i llama_ifb/tensorrt_llm_bls/config.pbtxt triton_max_batch_size:64,decoupled_mode:False,bls_instance_count:1,accumulate_tokens:False,logits_datatype:TYPE_FP32",
+                f"{prefix_cmd} -i llama_ifb/ensemble/config.pbtxt triton_max_batch_size:64,logits_datatype:TYPE_FP32",
+                f"{prefix_cmd} -i llama_ifb/tensorrt_llm/config.pbtxt triton_backend:tensorrtllm,triton_max_batch_size:64,decoupled_mode:False,max_beam_width:1,engine_dir:{self.engine_path},max_tokens_in_paged_kv_cache:2560,max_attention_window_size:2560,kv_cache_free_gpu_mem_fraction:0.5,exclude_input_in_output:True,enable_kv_cache_reuse:False,batching_strategy:inflight_fused_batching,max_queue_delay_microseconds:0,encoder_input_features_data_type:TYPE_FP16,logits_datatype:TYPE_FP32",
             ]
 
             for template in templates:
-                self.run_command(command=template).unwrap()
+                ModelBuilder.run_command(command=template).unwrap()
 
             logger.info("Config preparation completed")
             return Ok(None)
@@ -170,23 +194,7 @@ class ModelBuilder:
             logger.error(f"Failed to prepare configs: {str(e)}")
             return Err(str(e))
 
-    def build(self: "ModelBuilder") -> Result[None, str]:
-        """Main build process."""
-        try:
-            logger.info(f"Starting build process for {self.model_name}")
-            self.setup_environment().unwrap()
-            self.setup_tensorrtllm_backend().unwrap()
-            self.download_model().unwrap()
-            self.convert_checkpoint().unwrap()
-            self.build_tensorrtllm().unwrap()
-            self.prepare_configs().unwrap()
-            logger.info(f"Build process completed successfully for {self.model_name}")
-            return Ok(None)
-        except Exception as e:
-            logger.error(f"Build process failed: {str(e)}")
-            return Err(str(e))
-
-    def save_model(self: "ModelBuilder") -> Result[None, str]:
+    def save(self: "ModelBuilder") -> Result[None, str]:
         """Save the model to google cloud storage."""
         client = storage.Client()
         bucket = client.bucket(bucket_name="datascience-result-prod")
@@ -215,8 +223,39 @@ class ModelBuilder:
 
         return Ok(None)
 
+    async def get_requirements(self: "ModelBuilder") -> Result[None, str]:
+        """Run backend setup and model download in parallel."""
+        logger.info("Starting parallel tasks: backend setup and model download")
+        backend_task = asyncio.create_task(self.set_tensorrtllm_backend())
+        model_task = asyncio.create_task(self.get_model_from_hf())
+
+        # Log that both tasks are created
+        logger.info("Both tasks created, waiting for completion...")
+
+        tasks = await asyncio.gather(backend_task, model_task)
+        for task in tasks:
+            task.unwrap()
+        return Ok(None)
+
+    def run(self: "ModelBuilder") -> Result[None, str]:
+        """Main build process."""
+        logger.info("getting python requirements")
+        try:
+            logger.info(f"Starting build process for {self.model_name}")
+            self.set_environment().unwrap()
+
+            asyncio.run(self.get_requirements()).unwrap()
+
+            self.set_checkpoint().unwrap()
+            self.set_engine().unwrap()
+            self.set_configs().unwrap()
+            self.save().unwrap()
+            logger.info(f"Build process completed successfully for {self.model_name}")
+            return Ok(None)
+        except Exception as e:
+            logger.error(f"Build process failed: {str(e)}")
+            return Err(str(e))
+
 
 if __name__ == "__main__":
-    builder = ModelBuilder()
-    builder.build().unwrap()
-    builder.save_model().unwrap()
+    ModelBuilder().run().unwrap()
