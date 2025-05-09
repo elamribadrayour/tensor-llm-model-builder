@@ -7,3 +7,4 @@ cd/
 .cursor
 .ruff_cache/
 .mypy_cache/
+data/

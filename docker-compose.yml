@@ -5,11 +5,13 @@ services:
       dockerfile: Dockerfile
     platform: linux/amd64
     volumes:
+      - ./data:/data
       - ./src/job:/app/src/job
       - ~/.config/gcloud/application_default_credentials.json:/credentials.json
     environment:
+      - UV_NO_VENV=1
       - HF_TOKEN=${HF_TOKEN}
       - MODEL_NAME=Llama-2-7b-hf
+      - HUGGINGFACE_HUB_CACHE=/data/
       - GOOGLE_APPLICATION_CREDENTIALS=/credentials.json
-      - HUGGINGFACE_HUB_CACHE=/app/models/huggingface/hub
     command: ["uv", "run", "main.py"]
