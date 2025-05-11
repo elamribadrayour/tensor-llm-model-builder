@@ -23,7 +23,7 @@ jobs:
           
       - name: Install dependencies
         run: |
-          uv pip install -e ".[ci]"
+          uv sync --frozen --group ci
 
       - name: Run ruff
         run: |
