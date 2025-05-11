@@ -9,10 +9,15 @@ dependencies = [
     "huggingface-hub>=0.31.1",
     "loguru>=0.7.3",
     "result>=0.17.0",
+    "ty>=0.0.0a8",
 ]
 
 [dependency-groups]
 ci = [
+    "mypy>=1.15.0",
     "ruff>=0.11.8",
-    "ty>=0.0.0a8",
 ]
+
+
+[tool.mypy]
+ignore_missing_imports = true

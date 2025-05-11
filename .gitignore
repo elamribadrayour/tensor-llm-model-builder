@@ -8,3 +8,4 @@ cd/
 .ruff_cache/
 .mypy_cache/
 data/
+__pycache__/
