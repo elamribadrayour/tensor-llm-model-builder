@@ -7,6 +7,14 @@ WORKDIR /app
 COPY pyproject.toml uv.lock /app/
 RUN uv sync --frozen
 
+# Setup TensorRT-LLM backend in temporary directory
+WORKDIR /tmp
+RUN git lfs install && \
+    git clone https://github.com/triton-inference-server/tensorrtllm_backend.git && \
+    cd tensorrtllm_backend && \
+    git submodule update --init --recursive
+
+WORKDIR /app
 COPY src/job /app/src/job
 WORKDIR /app/src/job
 

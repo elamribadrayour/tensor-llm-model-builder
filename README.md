@@ -34,10 +34,7 @@ Create and configure your environment variables:
 cp .env.example .env
 ```
 
-Fill in the required environment variables in `.env`:
-```env
-HUGGINGFACE_TOKEN=your-huggingface-token
-```
+Fill in the required environment variables in `.env` based on .env.example.
 
 ## Usage
 
@@ -60,7 +57,6 @@ docker-compose up --build
 ```
 .
 ├── src/            # Source code
-├── models/         # Model storage
 ├── Dockerfile     # Container definition
 └── docker-compose.yml
 ```

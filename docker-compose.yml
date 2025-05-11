@@ -9,9 +9,11 @@ services:
       - ./src/job:/app/src/job
       - ~/.config/gcloud/application_default_credentials.json:/credentials.json
     environment:
-      - UV_NO_VENV=1
-      - HF_TOKEN=${HF_TOKEN}
-      - MODEL_NAME=Llama-2-7b-hf
-      - HUGGINGFACE_HUB_CACHE=/data/
-      - GOOGLE_APPLICATION_CREDENTIALS=/credentials.json
+      HF_TOKEN: "${HF_TOKEN}"
+      ORGANIZATION: "meta-llama"
+      BUCKET_NAME: "${BUCKET_NAME}"
+      HUGGINGFACE_HUB_CACHE: "/data/"
+      GCLOUD_PROJECT: "${GCLOUD_PROJECT}"
+      MODEL_NAME: "Llama-3.1-8B-Instruct"
+      GOOGLE_APPLICATION_CREDENTIALS: "/credentials.json"
     command: ["uv", "run", "main.py"]
