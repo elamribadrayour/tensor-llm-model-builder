@@ -5,8 +5,8 @@ from uuid import uuid4
 from pathlib import Path
 
 from loguru import logger
-from google.cloud import storage
 from result import Err, Ok, Result
+import google.cloud.storage as storage
 from huggingface_hub import hf_hub_download
 
 
