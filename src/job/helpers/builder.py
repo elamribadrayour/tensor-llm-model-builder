@@ -41,13 +41,18 @@ def get_paths(model_name: str, model_name_unique: str) -> Result[dict[str, Path]
         raise Exception(
             f"Base path {base_path} does not exist, a pvc of at least 1Ti mounted on /data is required because of large file sizes"
         )
-
+    
     config_path = hf_hub_download("meta-llama/" + model_name, filename="config.json")
     hf_model_path = Path(config_path).parent
 
     ckpt_path = base_path / "tensorrt" / "ckpt" / model_name_unique
     engine_path = base_path / "tensorrt" / "engines" / model_name_unique
-    backend_path = base_path / "tensorrtllm_backend"
+    backend_path = Path("/tmp/tensorrtllm_backend")
+
+    if not backend_path.exists():
+        raise Exception(
+            f"Backend path {backend_path} does not exist, a pvc of at least 1Ti mounted on /data is required because of large file sizes"
+        )
 
     logger.info(f"Paths: {ckpt_path}, {engine_path}, {backend_path}, {hf_model_path}")
 
@@ -64,7 +69,7 @@ def get_paths(model_name: str, model_name_unique: str) -> Result[dict[str, Path]
 
 def get_gcs_paths(model_name_unique: str) -> Result[dict[str, str], str]:
     """Get the GCS paths for the model."""
-    prefix_gcs_path = "tensorrt/models"
+    prefix_gcs_path = "tensorrt-llm/models"
 
     return Ok(
         {
@@ -78,15 +83,6 @@ def get_gcs_paths(model_name_unique: str) -> Result[dict[str, str], str]:
 def set_directories(paths: dict[str, Path]) -> Result[None, str]:
     """Create necessary directories."""
     try:
-        # Move TensorRT-LLM backend from /tmp to /data using rsync
-        tmp_backend = Path("/tmp/tensorrtllm_backend")
-        shutil.rmtree(paths["backend"], ignore_errors=True)
-        run_command(
-            command=f"rsync -av --delete {tmp_backend}/ {paths['backend']}/",
-            cwd=str(paths["base"]),
-        ).unwrap()
-        logger.info("TensorRT-LLM backend moved from /tmp to /data")
-
         for key in ["ckpt", "engine"]:
             paths[key].mkdir(parents=True, exist_ok=True)
         logger.info("Directories created successfully")

@@ -13,5 +13,6 @@ services:
       MODEL_NAME: "Llama-2-7b-hf"
       BUCKET_NAME: "${BUCKET_NAME}"
       HUGGINGFACE_HUB_CACHE: "/data/"
+      GCLOUD_PROJECT: "${GCLOUD_PROJECT}"
       GOOGLE_APPLICATION_CREDENTIALS: "/credentials.json"
     command: ["uv", "run", "main.py"]
