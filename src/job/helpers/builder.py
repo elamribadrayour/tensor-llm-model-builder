@@ -4,7 +4,7 @@ Builder for the ModelBuilder class.
 
 import os
 import shutil
-import asyncio
+import subprocess
 from uuid import uuid4
 from pathlib import Path
 
@@ -12,7 +12,21 @@ from loguru import logger
 from result import Err, Ok, Result
 from huggingface_hub import hf_hub_download
 
-from helpers import cmd, save
+from helpers import save
+
+
+def run_command(command: str, cwd: str | None = None) -> Result[bool, str]:
+    """Execute a shell command and handle errors."""
+    try:
+        logger.info(f"Executing command: {command}")
+        result = subprocess.run(
+            command, shell=True, check=True, cwd=cwd, capture_output=True, text=True
+        )
+        logger.info(result.stdout)
+        return Ok(True)
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Command failed: {e.stderr}")
+        return Err(e.stderr)
 
 
 def get_model_name_unique(model_name: str) -> str:
@@ -63,12 +77,23 @@ def get_gcs_paths(model_name_unique: str) -> Result[dict[str, str], str]:
 
 def set_directories(paths: dict[str, Path]) -> Result[None, str]:
     """Create necessary directories."""
-    shutil.rmtree(paths["backend"])
+    try:
+        # Move TensorRT-LLM backend from /tmp to /data using rsync
+        tmp_backend = Path("/tmp/tensorrtllm_backend")
+        shutil.rmtree(paths["backend"], ignore_errors=True)
+        run_command(
+            command=f"rsync -av --delete {tmp_backend}/ {paths['backend']}/",
+            cwd=str(paths["base"]),
+        ).unwrap()
+        logger.info("TensorRT-LLM backend moved from /tmp to /data")
 
-    for key in ["ckpt", "engine"]:
-        paths[key].mkdir(parents=True, exist_ok=True)
-    logger.info("Directories created successfully")
-    return Ok(None)
+        for key in ["ckpt", "engine"]:
+            paths[key].mkdir(parents=True, exist_ok=True)
+        logger.info("Directories created successfully")
+        return Ok(None)
+    except Exception as e:
+        logger.error(f"Failed to setup directories: {str(e)}")
+        return Err(str(e))
 
 
 def set_environment(paths: dict[str, Path], model_name: str) -> Result[None, str]:
@@ -86,63 +111,17 @@ def set_environment(paths: dict[str, Path], model_name: str) -> Result[None, str
         return Err(str(e))
 
 
-async def set_tensorrtllm_backend(paths: dict[str, Path]) -> Result[None, str]:
-    """Set up TensorRT-LLM backend asynchronously."""
-    try:
-        os.chdir(paths["base"])
-        result = await cmd.run_command_async(command="git lfs install")
-        result.unwrap()
-
-        result = await cmd.run_command_async(
-            command="git clone https://github.com/triton-inference-server/tensorrtllm_backend.git"
-        )
-        result.unwrap()
-
-        os.chdir(paths["backend"])
-        result = await cmd.run_command_async(
-            command="git submodule update --init --recursive"
-        )
-        result.unwrap()
-
-        logger.info("TensorRT-LLM backend setup completed")
-        return Ok(None)
-    except Exception as e:
-        logger.error(f"Failed to setup TensorRT-LLM backend: {str(e)}")
-        return Err(str(e))
-
-
-async def get_model_from_hf(model_name: str) -> Result[None, str]:
+def get_model_from_hf(model_name: str) -> Result[None, str]:
     """Download the model from Hugging Face asynchronously."""
     try:
         logger.info(f"Starting model download for {model_name}...")
         download_cmd = f"huggingface-cli download meta-llama/{model_name}"
-        result = await cmd.run_command_async(command=download_cmd)
-        result.unwrap()
+        run_command(command=download_cmd).unwrap()
         logger.info("Model download completed")
         return Ok(None)
     except Exception as e:
         logger.error(f"Failed to download model: {str(e)}")
         return Err(str(e))
-
-
-async def get_requirements_async(
-    paths: dict[str, Path], model_name: str
-) -> Result[None, str]:
-    """Run backend setup and model download in parallel."""
-    logger.info("Starting parallel tasks: backend setup and model download")
-    backend_task = asyncio.create_task(set_tensorrtllm_backend(paths=paths))
-    model_task = asyncio.create_task(get_model_from_hf(model_name=model_name))
-
-    logger.info("Both tasks created, waiting for completion...")
-    tasks = await asyncio.gather(backend_task, model_task)
-    for task in tasks:
-        task.unwrap()
-    return Ok(None)
-
-
-def get_requirements(paths: dict[str, Path], model_name: str) -> Result[None, str]:
-    """Run backend setup and model download in parallel."""
-    return asyncio.run(get_requirements_async(paths=paths, model_name=model_name))
 
 
 def set_checkpoint(paths: dict[str, Path]) -> Result[None, str]:
@@ -155,7 +134,7 @@ def set_checkpoint(paths: dict[str, Path]) -> Result[None, str]:
             f"--output_dir {paths['ckpt']} "
             f"--dtype float16"
         )
-        cmd.run_command(command=convert_cmd).unwrap()
+        run_command(command=convert_cmd).unwrap()
         logger.info("Checkpoint conversion completed")
         return Ok(None)
     except Exception as e:
@@ -178,7 +157,7 @@ def set_engine(paths: dict[str, Path]) -> Result[None, str]:
             f"--kv_cache_type paged "
             f"--max_batch_size 64"
         )
-        cmd.run_command(command=build_cmd).unwrap()
+        run_command(command=build_cmd).unwrap()
         logger.info("TensorRT-LLM build completed")
         return Ok(None)
     except Exception as e:
@@ -191,9 +170,7 @@ def set_configs(paths: dict[str, Path]) -> Result[None, str]:
     os.chdir(paths["backend"])
     try:
         # Copy config template
-        cmd.run_command(
-            command="cp all_models/inflight_batcher_llm/ llama_ifb -r"
-        ).unwrap()
+        run_command(command="cp all_models/inflight_batcher_llm/ llama_ifb -r").unwrap()
 
         # Fill templates
         prefix_cmd = "/usr/bin/python3 tools/fill_template.py"
@@ -206,7 +183,7 @@ def set_configs(paths: dict[str, Path]) -> Result[None, str]:
         ]
 
         for template in templates:
-            cmd.run_command(command=template).unwrap()
+            run_command(command=template).unwrap()
 
         logger.info("Config preparation completed")
         return Ok(None)
