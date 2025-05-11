@@ -1,6 +1,7 @@
 import os
-import subprocess
+import shutil
 import asyncio
+import subprocess
 from uuid import uuid4
 from pathlib import Path
 
@@ -38,8 +39,8 @@ class ModelBuilder:
             self.base_path / "tensorrt" / "engines" / self.model_name_unique
         )
         self.backend_path = self.base_path / "tensorrtllm_backend"
-        # if self.backend_path.exists():
-        #     shutil.rmtree(self.backend_path)
+        if self.backend_path.exists():
+            shutil.rmtree(self.backend_path)
 
     @staticmethod
     def run_command(command: str, cwd: str | None = None) -> Result[bool, str]:
@@ -88,10 +89,6 @@ class ModelBuilder:
 
     async def set_tensorrtllm_backend(self: "ModelBuilder") -> Result[None, str]:
         """Set up TensorRT-LLM backend asynchronously."""
-        if self.backend_path.exists():
-            logger.info("TensorRT-LLM backend already exists, skipping setup")
-            return Ok(None)
-
         try:
             os.chdir(self.base_path)
             result = await ModelBuilder.run_command_async(command="git lfs install")
@@ -229,9 +226,7 @@ class ModelBuilder:
         backend_task = asyncio.create_task(self.set_tensorrtllm_backend())
         model_task = asyncio.create_task(self.get_model_from_hf())
 
-        # Log that both tasks are created
         logger.info("Both tasks created, waiting for completion...")
-
         tasks = await asyncio.gather(backend_task, model_task)
         for task in tasks:
             task.unwrap()
