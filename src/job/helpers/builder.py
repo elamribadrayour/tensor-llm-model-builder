@@ -3,7 +3,6 @@ Builder for the ModelBuilder class.
 """
 
 import os
-import shutil
 import subprocess
 from uuid import uuid4
 from pathlib import Path
@@ -41,7 +40,7 @@ def get_paths(model_name: str, model_name_unique: str) -> Result[dict[str, Path]
         raise Exception(
             f"Base path {base_path} does not exist, a pvc of at least 1Ti mounted on /data is required because of large file sizes"
         )
-    
+
     config_path = hf_hub_download("meta-llama/" + model_name, filename="config.json")
     hf_model_path = Path(config_path).parent
 

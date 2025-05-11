@@ -9,9 +9,7 @@ from result import Ok, Result
 import google.cloud.storage as storage
 
 
-def save_dir(
-    bucket_name: str, gcs_path: str, dir_path: Path
-) -> Result[None, str]:
+def save_dir(bucket_name: str, gcs_path: str, dir_path: Path) -> Result[None, str]:
     """Save a directory to google cloud storage."""
     client = storage.Client()
     bucket = client.bucket(bucket_name=bucket_name)
