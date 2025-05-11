@@ -106,11 +106,11 @@ def set_environment(paths: dict[str, Path], model_name: str) -> Result[None, str
         return Err(str(e))
 
 
-def get_model_from_hf(model_name: str) -> Result[None, str]:
+def get_model_from_hf(model_name: str, organization: str) -> Result[None, str]:
     """Download the model from Hugging Face asynchronously."""
     try:
-        logger.info(f"Starting model download for {model_name}...")
-        download_cmd = f"huggingface-cli download meta-llama/{model_name}"
+        logger.info(f"Starting model download for {organization}/{model_name}...")
+        download_cmd = f"huggingface-cli download {organization}/{model_name}"
         run_command(command=download_cmd).unwrap()
         logger.info("Model download completed")
         return Ok(None)

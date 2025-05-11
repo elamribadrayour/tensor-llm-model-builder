@@ -12,7 +12,9 @@ def run() -> None:
     ).unwrap()
     builder.set_directories(paths=paths).unwrap()
     builder.set_environment(paths=paths, model_name=env.model_name).unwrap()
-    builder.get_model_from_hf(model_name=env.model_name).unwrap()
+    builder.get_model_from_hf(
+        model_name=env.model_name, organization=env.organization
+    ).unwrap()
 
     builder.set_checkpoint(paths=paths).unwrap()
     builder.set_engine(paths=paths).unwrap()

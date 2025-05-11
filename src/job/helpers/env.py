@@ -7,3 +7,5 @@ import os
 
 model_name = os.environ["MODEL_NAME"]
 bucket_name = os.environ["BUCKET_NAME"]
+organization = os.environ["ORGANIZATION"]
+
